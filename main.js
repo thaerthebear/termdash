@@ -68,6 +68,15 @@ try {
 const store = new Store({ clearInvalidConfig: true })
 let mainWindow = null
 
+// If a previous run hit repeated GPU-process crashes (bad/old graphics driver,
+// a VM, remote desktop, low-end hardware — exactly the machines this ships to),
+// boot in software-rendering mode so the user gets a working window instead of a
+// black/crashing one. TermDash is just terminals + panels, so software rendering
+// is perfectly smooth here. Must be set before the app is 'ready'.
+if (store.get('gpuDisabled')) {
+  app.disableHardwareAcceleration()
+}
+
 // ── Shared spawn helpers ─────────────────────────────────────────────────────
 // A saved session can point at a folder that was since moved or deleted. Handing
 // that path to node-pty throws (or fails silently), so the user clicks their
@@ -111,11 +120,32 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
   console.error('[termdash] unhandledRejection (kept alive):', reason)
 })
+// GPU-process crashes (bad drivers, VMs, low-end hardware) can cascade into the
+// renderer and black-screen the app. If the GPU dies more than once, persist a
+// flag and relaunch — the next boot disables hardware acceleration (above) and
+// the app runs on software rendering instead of dying.
+let gpuCrashes = 0
 app.on('child-process-gone', (_e, details) => {
   console.error('[termdash] child-process-gone:', details.type, details.reason)
+  if (details.type === 'GPU') {
+    gpuCrashes++
+    if (gpuCrashes >= 2 && !store.get('gpuDisabled')) {
+      store.set('gpuDisabled', true)
+      app.relaunch()
+      app.exit(0)
+    }
+  }
 })
+// A renderer crash leaves a dead/black window. Reload it so a transient crash
+// self-heals; cap reloads so a deterministic crash can't loop forever.
+let rendererReloads = 0
 app.on('render-process-gone', (_e, _wc, details) => {
   console.error('[termdash] render-process-gone:', details.reason)
+  if (details.reason !== 'clean-exit' && rendererReloads < 3 &&
+      mainWindow && !mainWindow.isDestroyed()) {
+    rendererReloads++
+    setTimeout(() => { try { mainWindow.reload() } catch (_) {} }, 800)
+  }
 })
 
 // ── Single-instance lock ────────────────────────────────────────────────────
