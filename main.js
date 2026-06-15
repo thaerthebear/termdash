@@ -584,7 +584,17 @@ ipcMain.handle('pty:swarm', (_, cmd) => {
 
 ipcMain.handle('launcher:open', (_, { url, filePath }) => {
   if (url)      return shell.openExternal(url)
-  if (filePath) return shell.openPath(filePath)
+  if (filePath) {
+    // Folder shortcuts (e.g. Screenshots) may not exist yet on a fresh machine.
+    // If it looks like a directory (no file extension) and isn't there, create it
+    // so the shortcut always opens instead of erroring.
+    try {
+      if (!fs.existsSync(filePath) && !path.extname(filePath)) {
+        fs.mkdirSync(filePath, { recursive: true })
+      }
+    } catch (_) {}
+    return shell.openPath(filePath)
+  }
 })
 
 // ── Swarm Deploy ───────────────────────────────────────────────────────────────

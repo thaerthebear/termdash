@@ -64,6 +64,8 @@ module.exports = [
   { id: 'gfonts',  name: 'Google Fonts', kind: 'launcher', type: 'design', url: 'https://fonts.google.com', path: null, color: '#4285f4', icon: 'design', section: 'Design Tools' },
 
   // ── Section 4: Inject / Artifact Tools ───────────────────────────────────
-  { id: 'anthropic-console', name: 'Anthropic Console', kind: 'launcher', type: 'ai-tool',  url: 'https://console.anthropic.com', path: null,                            color: '#dc2626', icon: 'claude', section: 'Inject & Artifacts' },
-  { id: 'downloads',         name: 'Downloads',         kind: 'launcher', type: 'artifact', url: null,                            path: path.join(HOME, 'Downloads'),    color: '#6b7280', icon: 'folder', section: 'Inject & Artifacts' }
+  // Folder shortcuts resolve to EACH user's own home dir — never a hardcoded path.
+  { id: 'anthropic-console', name: 'Anthropic Console', kind: 'launcher', type: 'ai-tool',  url: 'https://console.anthropic.com', path: null,                                         color: '#dc2626', icon: 'claude', section: 'Inject & Artifacts' },
+  { id: 'screenshots',       name: 'Screenshots',       kind: 'launcher', type: 'artifact', url: null,                            path: path.join(HOME, 'Pictures', 'Screenshots'), color: '#7c3aed', icon: 'folder', section: 'Inject & Artifacts' },
+  { id: 'downloads',         name: 'Downloads',         kind: 'launcher', type: 'artifact', url: null,                            path: path.join(HOME, 'Downloads'),                 color: '#6b7280', icon: 'folder', section: 'Inject & Artifacts' }
 ]
