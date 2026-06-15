@@ -4,6 +4,21 @@ All notable changes to TermDash are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/);
 versioning follows [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - 2026-06-15
+### Added
+- **GPU/renderer crash self-heal.** Repeated GPU-process crashes (bad drivers,
+  VMs, low-end hardware) now auto-relaunch in software-rendering mode, and a
+  renderer crash auto-reloads — so the app keeps working instead of black-screening.
+- **Per-user Screenshots shortcut** that resolves to each user's own
+  `Pictures\Screenshots`; folder shortcuts auto-create the folder on open.
+### Fixed
+- **Pre-launch security audit fixes:** eliminated all hardcoded personal paths
+  (a downloaded copy never opens the author's folders); added a swarm-target
+  guardrail that blocks system/drive roots and confirms on home/non-git folders
+  before deploy; added a Content-Security-Policy + navigation guards; hardened
+  boot reliability (corrupt-config recovery, off-screen-window guard, safe cwd
+  fallback, readable fatal-load dialog, one-shot trust auto-accept).
+
 ## [1.1.0] - 2026-06-15
 ### Added
 - **Automatic updates.** The installed app now checks GitHub Releases on launch,
