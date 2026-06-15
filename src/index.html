@@ -2,6 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <!-- Defense-in-depth CSP: allow all LOCAL file: resources (so the app never
+       white-screens), but block remote script/style and any outbound connect —
+       so a renderer-side XSS can't pull a remote payload or exfiltrate data. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' file: 'unsafe-inline' 'unsafe-eval'; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data:; font-src 'self' file: data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>TermDash</title>
   <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
   <link rel="stylesheet" href="styles/global.css">

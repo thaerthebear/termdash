@@ -18,3 +18,7 @@ t_out.log
 t_err.log
 swarm_test_out.log
 swarm_test_err.log
+
+# Swarm audit working docs — contain unfixed-vuln findings; keep local, never publish
+PLAN.md
+SWARM.md

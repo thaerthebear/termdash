@@ -6,7 +6,7 @@ window.NewSessionModal = function NewSessionModal ({ onClose, onAdd }) {
   const [form, setForm] = useState({
     name:    '',
     kind:    'terminal',
-    cwd:     'C:\\Users\\thaer',
+    cwd:     '', // empty → main process defaults to THIS user's home (os.homedir())
     shell:   'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
     args:    '',
     color:   '#0078d4',
@@ -51,7 +51,7 @@ window.NewSessionModal = function NewSessionModal ({ onClose, onAdd }) {
           {form.kind === 'terminal' ? (
             <>
               <label style={LABEL}>Starting Directory
-                <input style={INPUT} value={form.cwd} onChange={e=>set('cwd',e.target.value)} />
+                <input style={INPUT} value={form.cwd} onChange={e=>set('cwd',e.target.value)} placeholder="Leave blank for your home folder" />
               </label>
               <label style={LABEL}>Shell
                 <input style={INPUT} value={form.shell} onChange={e=>set('shell',e.target.value)} />
@@ -66,7 +66,7 @@ window.NewSessionModal = function NewSessionModal ({ onClose, onAdd }) {
                 <input style={INPUT} value={form.url||''} onChange={e=>set('url',e.target.value)} placeholder="https://..." />
               </label>
               <label style={LABEL}>Local Path (optional)
-                <input style={INPUT} value={form.path||''} onChange={e=>set('path',e.target.value)} placeholder="C:\Users\thaer\..." />
+                <input style={INPUT} value={form.path||''} onChange={e=>set('path',e.target.value)} placeholder="C:\Users\YourName\..." />
               </label>
             </>
           )}

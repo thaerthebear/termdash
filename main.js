@@ -22,23 +22,37 @@ if (process.platform === 'win32') {
   }
 }
 
-const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron')
+const { app, BrowserWindow, ipcMain, shell, dialog, screen } = require('electron')
 const path = require('path')
 const crypto = require('crypto')
 const os = require('os')
+
+// A native-module load failure must never be a silent exit-with-no-window for a
+// non-technical user — show a readable dialog explaining what's wrong and how to
+// recover, then quit. (dialog.showErrorBox is safe to call before app 'ready'.)
+function fatalLoad (title, detail) {
+  try { require('electron').dialog.showErrorBox(title, detail) }
+  catch (_) { console.error(title, detail) }
+  process.exit(1)
+}
 
 let Store, nodePty
 try {
   Store = require('electron-store')
 } catch (e) {
-  console.error('electron-store not found, run npm install')
-  process.exit(1)
+  fatalLoad('TermDash could not start',
+    'A required component (electron-store) failed to load.\n\n' +
+    'The install looks incomplete or corrupted — reinstall TermDash from the ' +
+    'latest release.\n\nDetails: ' + (e && e.message))
 }
 try {
   nodePty = require('node-pty')
 } catch (e) {
-  console.error('node-pty not found or not rebuilt:', e.message)
-  process.exit(1)
+  fatalLoad('TermDash could not start',
+    'The terminal engine (node-pty) failed to load on this machine.\n\n' +
+    'This is usually antivirus quarantining the bundled terminal binary, or an ' +
+    'incomplete install. Reinstall TermDash and allow it through Windows ' +
+    'SmartScreen / your antivirus.\n\nDetails: ' + (e && e.message))
 }
 
 // Auto-update is optional — never let its absence stop the app from booting.
@@ -47,8 +61,40 @@ try {
   autoUpdater = require('electron-updater').autoUpdater
 } catch (_) {}
 
-const store = new Store()
+// clearInvalidConfig: a config.json left half-written (power loss, two instances
+// racing the write, disk hiccup) would otherwise throw RIGHT HERE — before the
+// uncaughtException handler below is even registered — and hard-crash on launch.
+// With this flag electron-store resets the corrupt file to defaults and boots.
+const store = new Store({ clearInvalidConfig: true })
 let mainWindow = null
+
+// ── Shared spawn helpers ─────────────────────────────────────────────────────
+// A saved session can point at a folder that was since moved or deleted. Handing
+// that path to node-pty throws (or fails silently), so the user clicks their
+// project and nothing happens. Fall back to home and log which path was missing.
+function safeCwd (cwd) {
+  try {
+    if (cwd && fs.existsSync(cwd) && fs.statSync(cwd).isDirectory()) return cwd
+  } catch (_) {}
+  if (cwd) console.error('[termdash] session cwd not found, using home instead:', cwd)
+  return os.homedir()
+}
+
+// Claude Code shows a one-time "Do you trust the files in this folder?" prompt on
+// first run in a directory. Auto-accept it ONCE, and only during the brief startup
+// window — so a later, unrelated "1) Yes" menu in a live session is never hijacked
+// by a stray "1" keystroke. Returns a function to feed each pty data chunk to.
+function makeTrustAutoAccepter (pty) {
+  let done = false
+  const until = Date.now() + 20000
+  return (data) => {
+    if (done || Date.now() > until) return
+    if (/trust.*folder|Do you trust/i.test(data)) {
+      done = true
+      setTimeout(() => { try { pty.write('1\r') } catch (_) {} }, 120)
+    }
+  }
+}
 
 // sessionId → { pty, outputBuffer: string[] }
 const ptyProcesses = new Map()
@@ -88,13 +134,28 @@ if (!gotSingleInstanceLock) {
   })
 }
 
+// A saved window position can land off-screen when the monitor it was last on is
+// unplugged or rearranged — the window then opens on a phantom display and looks
+// like "the app won't start". Treat saved x/y as usable only if they still overlap
+// a connected display's work area; otherwise drop them and let Electron center it.
+function boundsAreVisible (b) {
+  if (!b || typeof b.x !== 'number' || typeof b.y !== 'number') return false
+  return screen.getAllDisplays().some(d => {
+    const wa = d.workArea
+    const overlapX = Math.min(b.x + (b.width || 0), wa.x + wa.width) - Math.max(b.x, wa.x)
+    const overlapY = Math.min(b.y + (b.height || 0), wa.y + wa.height) - Math.max(b.y, wa.y)
+    return overlapX > 80 && overlapY > 80
+  })
+}
+
 function createWindow () {
   const bounds = store.get('windowBounds', { width: 1400, height: 900 })
+  const visible = boundsAreVisible(bounds)
   mainWindow = new BrowserWindow({
     width: bounds.width,
     height: bounds.height,
-    x: bounds.x,
-    y: bounds.y,
+    x: visible ? bounds.x : undefined,
+    y: visible ? bounds.y : undefined,
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#1e1e1e',
@@ -108,6 +169,19 @@ function createWindow () {
   })
 
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'))
+
+  // ── Navigation hardening (Electron Security Checklist) ──────────────────────
+  // The renderer only ever shows our bundled file:// page. Block any attempt to
+  // navigate it elsewhere, and never let it spawn arbitrary new windows — route
+  // legit http(s) links out to the OS browser, deny everything else.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  mainWindow.webContents.on('will-navigate', (e, url) => {
+    if (!url.startsWith('file://')) e.preventDefault()
+  })
+  mainWindow.webContents.on('will-attach-webview', (e) => e.preventDefault())
 
   mainWindow.on('close', () => {
     const b = mainWindow.getBounds()
@@ -225,7 +299,7 @@ ipcMain.handle('pty:start', (_, session) => {
     ? 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
     : 'bash')
   const args  = session.args  || []
-  const cwd   = session.cwd   || os.homedir()
+  const cwd   = safeCwd(session.cwd)
 
   // Ensure Windows system dirs are in PATH so shells can find their own utilities
   const npmBin = path.join(process.env.APPDATA || (os.homedir() + '\\AppData\\Roaming'), 'npm')
@@ -248,14 +322,12 @@ ipcMain.handle('pty:start', (_, session) => {
   }
 
   const outputBuffer = []
+  const maybeAutoTrust = makeTrustAutoAccepter(pty)
 
   pty.onData(data => {
     outputBuffer.push(data)
     if (outputBuffer.length > 500) outputBuffer.shift()
-    // Auto-accept Claude Code folder trust prompt
-    if (/trust.*folder|Do you trust|1[\.\)]\s*(Yes|Proceed|Trust)/i.test(data)) {
-      setTimeout(() => { try { pty.write('1\r') } catch (_) {} }, 120)
-    }
+    maybeAutoTrust(data)
     if (mainWindow) {
       mainWindow.webContents.send('pty-output', { id: session.id, data })
     }
@@ -414,14 +486,14 @@ ipcMain.handle('skills:list', () => {
 function spawnForCommander (session) {
   if (ptyProcesses.has(session.id)) return true
   const npmBin = path.join(process.env.APPDATA || (os.homedir() + '\\AppData\\Roaming'), 'npm')
-  const sp = `C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\WindowsPowerShell\\v1.0;${npmBin}`
+  const sp = `C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0;${npmBin}`
   const ep = process.env.PATH ? `${sp};${process.env.PATH}` : sp
   const env = { ...process.env, PATH: ep, TERM: 'xterm-256color' }
   try {
     const pty = nodePty.spawn(
       session.shell || 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
       session.args || [],
-      { name: 'xterm-256color', cols: 120, rows: 30, cwd: session.cwd || os.homedir(), env }
+      { name: 'xterm-256color', cols: 120, rows: 30, cwd: safeCwd(session.cwd), env }
     )
     const buf = []
     pty.onData(d => { buf.push(d); if (buf.length > 500) buf.shift(); if (mainWindow) mainWindow.webContents.send('pty-output', { id: session.id, data: d }) })
@@ -542,7 +614,7 @@ ipcMain.handle('pty:swarm', (_, cmd) => {
     // Ensure PTY is running — start it if not already
     if (!ptyProcesses.has(session.id)) {
       const sh  = session.shell || 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
-      const cwd = session.cwd   || os.homedir()
+      const cwd = safeCwd(session.cwd)
       const npmBin2 = path.join(process.env.APPDATA || (os.homedir() + '\\AppData\\Roaming'), 'npm')
       const sysPath = `C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0;${npmBin2}`
       const envPath = process.env.PATH ? `${sysPath};${process.env.PATH}` : sysPath
@@ -583,7 +655,13 @@ ipcMain.handle('pty:swarm', (_, cmd) => {
 // ── Launcher ─────────────────────────────────────────────────────────────────
 
 ipcMain.handle('launcher:open', (_, { url, filePath }) => {
-  if (url)      return shell.openExternal(url)
+  if (url) {
+    // Only ever hand the OS http(s)/mailto links. Without this an arbitrary
+    // scheme (file:, smb:, ms-msdt:, custom protocol handlers) could be passed
+    // to the shell and trigger code execution / app launches.
+    if (!/^(https?|mailto):/i.test(String(url))) return Promise.resolve()
+    return shell.openExternal(url)
+  }
   if (filePath) {
     // Folder shortcuts (e.g. Screenshots) may not exist yet on a fresh machine.
     // If it looks like a directory (no file extension) and isn't there, create it
@@ -628,7 +706,7 @@ ipcMain.handle('dialog:pickFiles', async () => {
 function ensurePtyFor (session) {
   if (ptyProcesses.has(session.id)) return true
   const sh  = session.shell || 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
-  const cwd = session.cwd   || os.homedir()
+  const cwd = safeCwd(session.cwd)
   const npmBin = path.join(process.env.APPDATA || (os.homedir() + '\\AppData\\Roaming'), 'npm')
   const sysPath = `C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0;${npmBin}`
   const envPath = process.env.PATH ? `${sysPath};${process.env.PATH}` : sysPath
@@ -636,12 +714,11 @@ function ensurePtyFor (session) {
   try {
     const pty = nodePty.spawn(sh, session.args || [], { name: 'xterm-256color', cols: 80, rows: 24, cwd, env })
     const outputBuffer = []
+    const maybeAutoTrust = makeTrustAutoAccepter(pty)
     pty.onData(data => {
       outputBuffer.push(data)
       if (outputBuffer.length > 500) outputBuffer.shift()
-      if (/trust.*folder|Do you trust|1[\.\)]\s*(Yes|Proceed|Trust)/i.test(data)) {
-        setTimeout(() => { try { pty.write('1\r') } catch (_) {} }, 120)
-      }
+      maybeAutoTrust(data)
       if (mainWindow) mainWindow.webContents.send('pty-output', { id: session.id, data })
     })
     pty.onExit(() => {
@@ -656,6 +733,69 @@ function ensurePtyFor (session) {
 
 // Launch the swarm: for each item {session, prompt}, start Claude Code and
 // inject the role prompt once it has loaded. Staggered so we don't spawn all at once.
+// ── Swarm target safety ─────────────────────────────────────────────────────
+// The swarm runs Claude/Codex with permissions BYPASSED and auto-accepts the
+// folder-trust prompt, so it can edit or delete anything under the chosen folder
+// and a malicious README in that folder could prompt-inject it. A non-dev who
+// points it at C:\, their whole home folder, or a non-git folder has no way to
+// review or undo the damage. Assess the target and force an informed choice.
+function assessSwarmTarget (folder) {
+  try {
+    const norm  = path.resolve(folder)
+    const lower = norm.toLowerCase()
+    const home  = os.homedir().toLowerCase()
+    const isDriveRoot = /^[a-z]:\\?$/i.test(norm)
+    const sysRoots = [
+      process.env.SystemRoot || 'C:\\Windows',
+      process.env.ProgramFiles || 'C:\\Program Files',
+      process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)',
+      process.env.ProgramData || 'C:\\ProgramData',
+    ].filter(Boolean).map(p => p.toLowerCase())
+    const inSystem = sysRoots.some(r => lower === r || lower.startsWith(r + '\\'))
+    let isGit = false
+    try { isGit = fs.existsSync(path.join(norm, '.git')) } catch (_) {}
+
+    if (isDriveRoot || inSystem) {
+      return { level: 'block', isGit, norm,
+        message: `"${norm}" is a drive root or system folder.\n\nThe swarm runs with permissions bypassed and could edit or delete anything inside it. Pick a specific project folder instead.` }
+    }
+    if (lower === home) {
+      return { level: 'warn', isGit, norm,
+        message: `"${norm}" is your entire home folder.\n\nThe swarm will run autonomously with permissions bypassed and can change every file under it — including other projects and personal files. Deploy here anyway?` }
+    }
+    if (!isGit) {
+      return { level: 'warn', isGit, norm,
+        message: `"${norm}" is not a git repository.\n\nThe swarm edits files without asking. Without git you won't be able to review or undo its changes. Deploy here anyway?` }
+    }
+    return { level: 'ok', isGit, norm }
+  } catch (e) {
+    return { level: 'ok', isGit: false, norm: folder }
+  }
+}
+
+// Renderer calls this BEFORE creating sessions. Returns { proceed:boolean }.
+// Blocking/confirming happens in a native modal so it can't be click-jacked.
+ipcMain.handle('swarm:preflight', (_, folder) => {
+  if (!folder) return { proceed: false }
+  const a = assessSwarmTarget(folder)
+  if (a.level === 'ok') return { proceed: true }
+  if (a.level === 'block') {
+    if (mainWindow) dialog.showMessageBoxSync(mainWindow, {
+      type: 'error', title: 'Unsafe swarm target', message: 'Cannot deploy here',
+      detail: a.message, buttons: ['OK'], defaultId: 0,
+    })
+    return { proceed: false }
+  }
+  // warn → explicit, default-to-cancel confirmation
+  const res = mainWindow ? dialog.showMessageBoxSync(mainWindow, {
+    type: 'warning', title: 'Confirm swarm target',
+    message: 'This folder may be risky for an autonomous swarm',
+    detail: a.message, buttons: ['Cancel', 'Deploy anyway'],
+    defaultId: 0, cancelId: 0,
+  }) : 0
+  return { proceed: res === 1 }
+})
+
 ipcMain.handle('swarm:launch', (_, { items, cwd }) => {
   // Scaffold the shared files the team coordinates through:
   //  - PLAN.md  : the single source of truth, owned/dictated by Codex (the lead)

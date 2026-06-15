@@ -16,7 +16,8 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win",
-    "pack": "electron-builder --win --dir"
+    "pack": "electron-builder --win --dir",
+    "test": "node --test \"test/**/*.test.js\""
   },
   "build": {
     "appId": "com.termdash.app",

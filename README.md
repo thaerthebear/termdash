@@ -54,7 +54,9 @@ manual re-downloading. See the [changelog](CHANGELOG.md) for what's new.
 1. Open TermDash → **🐝 Swarm Deploy** tab.
 2. **Goal:** what you want built or checked.
 3. **Folder:** the project the team works in.
-4. Keep **Codex (Lead)** on, confirm the specialists, hit **🚀 Deploy swarm**.
+4. Leave **Lead coordinator** on (it runs on your Claude by default — pick Codex
+   under *Lead powered by* only if you have the Codex CLI), confirm the
+   specialists, and hit **🚀 Deploy swarm**.
 5. Watch them work. Progress lives in `PLAN.md`; findings in `SWARM.md`.
 
 ## Run from source (devs)
@@ -83,8 +85,10 @@ the renderer without killing your terminals. Licensed MIT.
 Every `claude` process writes a shared config on startup, so TermDash **staggers
 launches** (the lead gets a head start, specialists follow spaced apart) to avoid
 corrupting your login. Agents run in bypass mode so they don't stall on prompts —
-point them at a project you're happy to let them edit, and use git so you can
-review their work.
+so before launch TermDash **checks the folder you picked**: it refuses drive roots
+and system folders (e.g. `C:\`, `C:\Windows`) outright, and asks you to confirm if
+you aim it at your whole home folder or a folder that isn't a git repo. Point the
+swarm at a **git-tracked project** so you can always review and undo its work.
 
 ---
 

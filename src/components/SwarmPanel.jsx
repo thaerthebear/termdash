@@ -168,6 +168,13 @@ window.SwarmPanel = function SwarmPanel ({ onCreateSession, onDeployed }) {
     if (deploying) return
     const chosen = SPECIALISTS.filter(s => checked.has(s.id))
     if (!goal.trim() || !folder || !chosen.length) return
+    // Safety gate: the swarm runs with permissions bypassed and edits files
+    // without asking. Block drive/system roots and force an informed OK on the
+    // home folder or a non-git folder before any session is created.
+    try {
+      const pre = await window.termAPI.swarmPreflight(folder)
+      if (!pre || !pre.proceed) return
+    } catch (_) {}
     setDeploying(true)
     try {
       const g = goal.trim()

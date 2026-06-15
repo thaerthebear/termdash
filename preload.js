@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('termAPI', {
   pickFolder:    ()       => ipcRenderer.invoke('dialog:pickFolder'),
   lastFolder:    ()       => ipcRenderer.invoke('dialog:lastFolder'),
   pickFiles:     ()       => ipcRenderer.invoke('dialog:pickFiles'),
+  swarmPreflight:(folder) => ipcRenderer.invoke('swarm:preflight', folder),
   swarmLaunch:   (opts)   => ipcRenderer.invoke('swarm:launch', opts),
 
   // Environment / onboarding — is the `claude` CLI installed & signed in?
