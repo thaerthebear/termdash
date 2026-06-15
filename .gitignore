@@ -1,0 +1,20 @@
+node_modules/
+.npmrc
+
+# Build output
+release/
+
+# Private collaborator doc — references unrelated private projects; keep local, never publish
+SETUP-BWEEZY.md
+
+# Internal strategy/planning — keep local, not for the public product repo
+LAUNCH-PLAN.md
+LAUNCH-KIT.md
+
+# Swarm/runtime scratch
+launch_out.log
+launch_err.log
+t_out.log
+t_err.log
+swarm_test_out.log
+swarm_test_err.log
