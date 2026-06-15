@@ -41,6 +41,12 @@ try {
   process.exit(1)
 }
 
+// Auto-update is optional — never let its absence stop the app from booting.
+let autoUpdater = null
+try {
+  autoUpdater = require('electron-updater').autoUpdater
+} catch (_) {}
+
 const store = new Store()
 let mainWindow = null
 
@@ -118,11 +124,41 @@ function createWindow () {
   })
 }
 
+// Check GitHub Releases for a newer version, download it in the background, and
+// offer to restart into it. Only runs in the installed app (never in dev), and
+// any failure is logged, never fatal — a user offline or behind a proxy still
+// gets a working app.
+function initAutoUpdates () {
+  if (!autoUpdater || !app.isPackaged) return
+  autoUpdater.autoDownload = true
+  autoUpdater.on('error', (err) => console.error('[termdash] update error:', err && err.message))
+  autoUpdater.on('update-available', (info) => {
+    if (mainWindow) mainWindow.webContents.send('update-status', { state: 'downloading', version: info.version })
+  })
+  autoUpdater.on('update-downloaded', (info) => {
+    if (mainWindow) mainWindow.webContents.send('update-status', { state: 'ready', version: info.version })
+    if (!mainWindow) return
+    dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      buttons: ['Restart now', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Update ready',
+      message: `TermDash ${info.version} is ready to install.`,
+      detail: 'Restart to finish updating. Your sessions are saved.'
+    }).then(({ response }) => {
+      if (response === 0) { try { autoUpdater.quitAndInstall() } catch (_) {} }
+    })
+  })
+  autoUpdater.checkForUpdates().catch(e => console.error('[termdash] update check failed:', e && e.message))
+}
+
 app.whenReady().then(() => {
   if (!store.has('sessions')) {
     store.set('sessions', require('./sessions.default.js'))
   }
   createWindow()
+  initAutoUpdates()
   app.on('activate', () => { if (!mainWindow) createWindow() })
 })
 

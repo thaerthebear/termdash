@@ -1,0 +1,66 @@
+name: 🐞 Bug report
+description: Something broke or didn't work as expected
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting! The more detail you give, the faster it gets fixed.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open TermDash
+        2. Go to Swarm Deploy
+        3. ...
+        4. See the error
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: TermDash version
+      placeholder: "e.g. 1.1.0 — it's in the installer filename you downloaded"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - Other (note it below)
+    validations:
+      required: true
+  - type: dropdown
+    id: claude
+    attributes:
+      label: Is Claude Code installed and signed in?
+      description: The setup bar on the TermDash home screen tells you.
+      options:
+        - "Yes — green 'Claude ready' bar"
+        - "Installed but not signed in"
+        - "Not installed"
+        - "Not sure"
+    validations:
+      required: true
+  - type: textarea
+    id: errors
+    attributes:
+      label: Any error messages?
+      description: Copy any red text from a terminal tile, the setup bar, or popups. Screenshots help too.

@@ -45,6 +45,10 @@ Download the latest **`TermDash-Setup.exe`** from
 > First launch may show a Windows SmartScreen notice (the app isn't code-signed
 > yet). Click **More info → Run anyway**.
 
+**Updates install themselves.** From v1.1.0 on, TermDash checks for new versions
+on launch, downloads them in the background, and offers a one-click restart — no
+manual re-downloading. See the [changelog](CHANGELOG.md) for what's new.
+
 ## Use it
 
 1. Open TermDash → **🐝 Swarm Deploy** tab.
