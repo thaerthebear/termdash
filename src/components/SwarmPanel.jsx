@@ -15,8 +15,15 @@ const SPECIALISTS = [
 ]
 
 // The lead coordinator. Always launches first, dictates the plan, and keeps
-// every specialist on the same page until the goal is finished.
-const LEAD = { id:'codex', name:'Codex (Lead)', color:'#f5b301', focus:'overall coordination — owning the shared plan and keeping the team aligned' }
+// every specialist on the same page until the goal is finished. The engine that
+// powers the lead is the user's choice — Claude (default, works for everyone with
+// Claude) or Codex (optional, only if the Codex CLI is installed). Specialists
+// ALWAYS run on Claude, so Claude is the one hard requirement.
+const LEAD_ENGINES = {
+  claude: { name: 'Claude', launch: 'claude --dangerously-skip-permissions' },
+  codex:  { name: 'Codex',  launch: 'codex --dangerously-bypass-approvals-and-sandbox' },
+}
+const LEAD_COLOR = '#f5b301'
 
 const BROAD_RE = /\bevery\b|\ball\b|complete|comprehensive|\bfull\b|thorough|check.*(way|field|angle)|audit|production[- ]?ready|every way/i
 
@@ -59,14 +66,15 @@ function fileRef (files) {
   return ` REFERENCE FILES (read these for full context): ${files.map(f => `"${f}"`).join(', ')}.`
 }
 
-// Brief for a specialist — they take orders from the Codex lead via PLAN.md.
-function buildPrompt (spec, goal, cwd, files) {
+// Brief for a specialist — they take orders from the lead via PLAN.md.
+// `leadName` is whatever engine leads (e.g. "Claude" or "Codex").
+function buildPrompt (spec, goal, cwd, files, leadName) {
   return (
-    `You are the ${spec.name} specialist in a multi-agent swarm working on ONE shared project, coordinated by a lead agent named Codex. ` +
+    `You are the ${spec.name} specialist in a multi-agent swarm working on ONE shared project, coordinated by a lead agent named ${leadName}. ` +
     `PROJECT GOAL: ${goal}.` + fileRef(files) + ` ` +
-    `FIRST, read the file PLAN.md in the project root — it is the single source of truth, dictated by Codex (the lead). Find the section assigned to "${spec.name}" and do ONLY the tasks listed there. ` +
-    `If PLAN.md has no tasks for you yet, wait a moment and re-read it — Codex is still writing the plan. ` +
-    `Your domain is: ${spec.focus}. As you work, RE-READ PLAN.md regularly so you stay on the same plan as everyone else and pick up any updates Codex makes — never drift from the plan. ` +
+    `FIRST, read the file PLAN.md in the project root — it is the single source of truth, dictated by ${leadName} (the lead). Find the section assigned to "${spec.name}" and do ONLY the tasks listed there. ` +
+    `If PLAN.md has no tasks for you yet, wait a moment and re-read it — ${leadName} is still writing the plan. ` +
+    `Your domain is: ${spec.focus}. As you work, RE-READ PLAN.md regularly so you stay on the same plan as everyone else and pick up any updates ${leadName} makes — never drift from the plan. ` +
     `Record your progress and findings in SWARM.md under a heading "## ${spec.name}" (severity, file:line, recommendation), and tick off your tasks in PLAN.md as you finish them. Do NOT edit other specialists' sections. ` +
     `Keep going until every task assigned to you in PLAN.md is complete. ` +
     `QUALITY BAR: ${CRAFT[spec.id] || 'Deliver work you would defend in a code review.'}` +
@@ -74,10 +82,11 @@ function buildPrompt (spec, goal, cwd, files) {
   )
 }
 
-// Brief for Codex, the lead. It dictates the plan and keeps the team aligned.
-function buildLeadPrompt (goal, cwd, teamNames, files) {
+// Brief for the lead. It dictates the plan and keeps the team aligned.
+// `leadName` is the engine powering the lead (e.g. "Claude" or "Codex").
+function buildLeadPrompt (goal, cwd, teamNames, files, leadName) {
   return (
-    `You are Codex, the LEAD coordinator of a multi-agent swarm working on ONE shared project. ` +
+    `You are ${leadName}, the LEAD coordinator of a multi-agent swarm working on ONE shared project. ` +
     `PROJECT GOAL: ${goal}.` + fileRef(files) + ` ` +
     `Your team of specialists (each in their own terminal): ${teamNames.join(', ')}. ` +
     `Your job is to dictate the plan and keep everyone on it until it is finished: ` +
@@ -101,7 +110,9 @@ window.SwarmPanel = function SwarmPanel ({ onCreateSession, onDeployed }) {
   const [folder,   setFolder]   = useState('')
   const [checked,  setChecked]  = useState(new Set())
   const [touched,  setTouched]  = useState(false) // has user manually toggled roles?
-  const [lead,     setLead]     = useState(true)  // Codex coordinates the swarm
+  const [lead,     setLead]     = useState(true)  // run a lead coordinator
+  const [leadEngine, setLeadEngine] = useState('claude') // 'claude' (default) | 'codex'
+  const [codexAvailable, setCodexAvailable] = useState(false) // Codex CLI detected?
   const [files,    setFiles]    = useState([])    // attached file paths (passed by path)
   const [deploying,setDeploying]= useState(false)
   const goalRef = useRef(null)
@@ -119,11 +130,19 @@ window.SwarmPanel = function SwarmPanel ({ onCreateSession, onDeployed }) {
   }
   const baseName = p => p.split(/[\\/]/).pop()
 
-  // Pre-fill last-used folder
+  // Pre-fill last-used folder + detect whether Codex is available as a lead option
   useEffect(() => {
     window.termAPI.lastFolder().then(f => { if (f) setFolder(f) })
+    window.termAPI.checkEnv().then(env => {
+      setCodexAvailable(!!(env && env.codexInstalled))
+    }).catch(() => {})
     setTimeout(() => goalRef.current?.focus(), 50)
   }, [])
+
+  // If Codex was picked but isn't installed, fall back to Claude.
+  useEffect(() => {
+    if (leadEngine === 'codex' && !codexAvailable) setLeadEngine('claude')
+  }, [leadEngine, codexAvailable])
 
   // Auto-suggest roles from the goal text, until the user manually edits the picks
   useEffect(() => {
@@ -158,14 +177,23 @@ window.SwarmPanel = function SwarmPanel ({ onCreateSession, onDeployed }) {
       const storedGoal = g.slice(0, 300)
       const items = []
 
-      // Codex (the lead) launches first so it can write PLAN.md before the
-      // specialists start reading it.
+      // The lead runs on the chosen engine (Claude by default, Codex if picked).
+      // Specialists always run on Claude — so the team shares one lead codename.
+      const engine = (lead && leadEngine === 'codex' && codexAvailable) ? 'codex' : 'claude'
+      const leadName = LEAD_ENGINES[engine].name
+
+      // The lead launches first so it can write PLAN.md before the specialists read it.
       if (lead) {
         const ls = await onCreateSession({
-          kind: 'terminal', name: LEAD.name, color: LEAD.color,
+          kind: 'terminal', name: `${leadName} (Lead)`, color: LEAD_COLOR,
           cwd: folder, swarm: true, lead: true, goal: storedGoal,
         })
-        items.push({ session: ls, prompt: buildLeadPrompt(g, folder, teamNames, files), lead: true })
+        items.push({
+          session: ls,
+          prompt: buildLeadPrompt(g, folder, teamNames, files, leadName),
+          lead: true,
+          launch: LEAD_ENGINES[engine].launch,
+        })
       }
 
       for (const spec of chosen) {
@@ -173,7 +201,7 @@ window.SwarmPanel = function SwarmPanel ({ onCreateSession, onDeployed }) {
           kind: 'terminal', name: spec.name, color: spec.color,
           cwd: folder, swarm: true, goal: storedGoal,
         })
-        items.push({ session: s, prompt: buildPrompt(spec, g, folder, files) })
+        items.push({ session: s, prompt: buildPrompt(spec, g, folder, files, leadName) })
       }
 
       await window.termAPI.swarmLaunch({ items, cwd: folder })
@@ -190,7 +218,7 @@ window.SwarmPanel = function SwarmPanel ({ onCreateSession, onDeployed }) {
     <div className="swarm-panel">
       <div className="swarm-head">
         <h2>🐝 Swarm Deploy</h2>
-        <p>State a goal, confirm the specialists, and a named Claude team launches on your project. <strong>Codex</strong> leads — it dictates the plan in <code>PLAN.md</code>, keeps everyone on the same page, and drives to the finish. Findings land in <code>SWARM.md</code>.</p>
+        <p>State a goal, confirm the specialists, and a named Claude team launches on your project. A <strong>lead coordinator</strong> dictates the plan in <code>PLAN.md</code>, keeps everyone on the same page, and drives to the finish. Findings land in <code>SWARM.md</code>. The lead runs on Claude by default; choose Codex if you have it.</p>
       </div>
 
       <label className="swarm-label">1 · What's the goal?</label>
@@ -234,15 +262,44 @@ window.SwarmPanel = function SwarmPanel ({ onCreateSession, onDeployed }) {
       <button
         className={'swarm-lead' + (lead ? ' on' : '')}
         onClick={() => setLead(v => !v)}
-        title="Codex coordinates the swarm — writes PLAN.md, assigns tasks, keeps everyone in sync, and drives to completion"
+        title="A lead coordinator writes PLAN.md, assigns tasks, keeps everyone in sync, and drives to completion"
       >
         <span className="swarm-lead-check">{lead ? '✓' : ''}</span>
         <span className="swarm-lead-icon">🧠</span>
         <span className="swarm-lead-text">
-          <strong>Codex (Lead)</strong>
-          <em>dictates the plan, keeps the team remembering & on the same plan, finishes it</em>
+          <strong>Lead coordinator</strong>
+          <em>dictates the plan, keeps the team on the same page, finishes it</em>
         </span>
       </button>
+
+      {lead && (
+        <div style={{ display:'flex', alignItems:'center', gap:'8px', margin:'8px 0 2px', flexWrap:'wrap', fontSize:'12px' }}>
+          <span style={{ color:'#808080' }}>Lead powered by:</span>
+          {[
+            { id:'claude', label:'Claude', enabled:true,           hint:'Uses the Claude you already have — recommended, works for everyone' },
+            { id:'codex',  label:'Codex',  enabled:codexAvailable, hint: codexAvailable ? 'Uses your OpenAI Codex CLI as the lead' : 'Optional — install the Codex CLI to use it as the lead' },
+          ].map(opt => (
+            <button
+              key={opt.id}
+              onClick={() => opt.enabled && setLeadEngine(opt.id)}
+              disabled={!opt.enabled}
+              title={opt.hint}
+              style={{
+                padding:'4px 12px', borderRadius:'6px', cursor: opt.enabled ? 'pointer' : 'not-allowed',
+                border:'1px solid ' + (leadEngine===opt.id ? '#f5b301' : '#3c3c3c'),
+                background: leadEngine===opt.id ? 'rgba(245,179,1,0.12)' : 'transparent',
+                color: opt.enabled ? (leadEngine===opt.id ? '#f5b301' : '#cccccc') : '#555',
+                fontWeight: leadEngine===opt.id ? 600 : 400,
+              }}
+            >
+              {leadEngine===opt.id ? '● ' : ''}{opt.label}{opt.id==='codex' && !opt.enabled ? ' (not installed)' : ''}
+            </button>
+          ))}
+          <span style={{ color:'#6a9955' }}>
+            {leadEngine==='codex' ? 'Lead on Codex · specialists on Claude' : 'Everything runs on your Claude'}
+          </span>
+        </div>
+      )}
 
       <label className="swarm-label">
         3 · Specialists to deploy
@@ -283,7 +340,7 @@ window.SwarmPanel = function SwarmPanel ({ onCreateSession, onDeployed }) {
       <div className="swarm-deploy-row">
         <span className="swarm-count">
           {checked.size
-            ? `${lead ? 'Codex + ' : ''}${checked.size} specialist${checked.size > 1 ? 's' : ''} ready`
+            ? `${lead ? LEAD_ENGINES[leadEngine].name + ' (Lead) + ' : ''}${checked.size} specialist${checked.size > 1 ? 's' : ''} ready`
             : 'pick at least one specialist'}
         </span>
         <button className="swarm-deploy-btn" onClick={deploy} disabled={!canDeploy}>

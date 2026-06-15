@@ -455,21 +455,30 @@ ipcMain.handle('lifecycle:set', (_, id, phase) => {
 // plus the account email (so we can show "runs on your Claude — you@x.com") —
 // no token or secret ever leaves the main process.
 ipcMain.handle('env:check', () => {
-  const out = { node: process.versions.node, claudeInstalled: false, claudePath: null, claudeLoggedIn: false, account: null }
-
-  // Claude CLI present? Check the npm global bin first, then fall back to PATH.
+  const out = { node: process.versions.node, claudeInstalled: false, claudePath: null, claudeLoggedIn: false, account: null, codexInstalled: false, codexPath: null }
   const npmBin = path.join(process.env.APPDATA || (os.homedir() + '\\AppData\\Roaming'), 'npm')
-  const candidates = ['claude.cmd', 'claude.ps1', 'claude.exe', 'claude'].map(n => path.join(npmBin, n))
-  for (const c of candidates) {
-    try { if (fs.existsSync(c)) { out.claudeInstalled = true; out.claudePath = c; break } } catch (_) {}
-  }
-  if (!out.claudeInstalled) {
+
+  // Resolve a CLI by name: npm global bin first, then PATH via `where`.
+  const resolveCli = (base) => {
+    for (const n of [`${base}.cmd`, `${base}.ps1`, `${base}.exe`, base]) {
+      const c = path.join(npmBin, n)
+      try { if (fs.existsSync(c)) return c } catch (_) {}
+    }
     try {
       const { execSync } = require('child_process')
-      const found = execSync('where claude', { windowsHide: true }).toString().trim().split(/\r?\n/)[0]
-      if (found) { out.claudeInstalled = true; out.claudePath = found }
+      const found = execSync(`where ${base}`, { windowsHide: true }).toString().trim().split(/\r?\n/)[0]
+      if (found) return found
     } catch (_) {}
+    return null
   }
+
+  // Claude — the hard requirement (specialists + default lead run on it).
+  out.claudePath = resolveCli('claude')
+  out.claudeInstalled = !!out.claudePath
+
+  // Codex — OPTIONAL: only offered as a lead engine if present.
+  out.codexPath = resolveCli('codex')
+  out.codexInstalled = !!out.codexPath
 
   // Signed in? ~/.claude.json carries the oauth account once the user logs in.
   try {
@@ -636,9 +645,11 @@ ipcMain.handle('swarm:launch', (_, { items, cwd }) => {
       if (!ensurePtyFor(item.session)) return
       const entry = ptyProcesses.get(item.session.id)
       if (!entry) return
-      // Launch Claude Code in bypass mode — swarm agents run autonomously and
-      // must never stall on a permission prompt.
-      try { entry.pty.write('claude --dangerously-skip-permissions\r') } catch (_) {}
+      // Launch the agent in bypass mode — swarm agents run autonomously and must
+      // never stall on a permission prompt. Specialists use Claude; the lead may
+      // use a different engine (e.g. Codex) via item.launch.
+      const launchCmd = item.launch || 'claude --dangerously-skip-permissions'
+      try { entry.pty.write(launchCmd + '\r') } catch (_) {}
       // After it loads (and the folder-trust prompt is auto-accepted), send the role brief
       setTimeout(() => {
         try { entry.pty.write(item.prompt + '\r') } catch (_) {}
