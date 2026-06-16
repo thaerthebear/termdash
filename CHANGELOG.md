@@ -4,6 +4,21 @@ All notable changes to TermDash are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/);
 versioning follows [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-06-15
+### Added
+- **First-run welcome tour** + a persistent **"?" help button** so a complete
+  beginner is guided from the very first screen and can never get stuck.
+- **One-click Claude setup** — no copy-pasting terminal commands. The setup bar
+  now offers "Get Node.js", "Install Claude for me", and "Sign in to Claude"
+  buttons that just do it in a terminal you watch.
+- **🎓 Try a demo** — runs the swarm on a safe throwaway project so you can watch
+  it work without touching your own files.
+- **Live agent status badges** — working / paused / stopped at a glance.
+- **🛑 Stop all agents** — one click kills every running agent.
+- **🔒 Ask-before-editing mode** — agents ask before each change (safer first runs).
+- **📤 Export findings** — save the swarm's SWARM.md as a shareable report.
+- Remembers your lead-engine choice (Claude/Codex) across restarts.
+
 ## [1.1.1] - 2026-06-15
 ### Added
 - **GPU/renderer crash self-heal.** Repeated GPU-process crashes (bad drivers,
