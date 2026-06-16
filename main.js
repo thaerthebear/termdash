@@ -826,6 +826,51 @@ ipcMain.handle('swarm:preflight', (_, folder) => {
   return { proceed: res === 1 }
 })
 
+// Export the swarm's findings (SWARM.md) to a location the user picks, then
+// reveal it — so they can read or share a clean report in one click.
+ipcMain.handle('swarm:export', async (_, cwd) => {
+  try {
+    const src = path.join(cwd || '', 'SWARM.md')
+    if (!cwd || !fs.existsSync(src)) {
+      return { ok: false, error: 'No findings yet — deploy a swarm on this folder first (it writes SWARM.md).' }
+    }
+    const res = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export swarm findings',
+      defaultPath: path.join(os.homedir(), 'Downloads', 'swarm-findings.md'),
+      filters: [{ name: 'Markdown', extensions: ['md'] }, { name: 'Text', extensions: ['txt'] }],
+    })
+    if (res.canceled || !res.filePath) return { ok: false, canceled: true }
+    fs.copyFileSync(src, res.filePath)
+    shell.showItemInFolder(res.filePath)
+    return { ok: true, path: res.filePath }
+  } catch (e) { return { ok: false, error: e.message } }
+})
+
+// Create a safe throwaway demo project so a nervous first-timer can run the swarm
+// without risking their own files. Seeds a tiny sample with obvious bugs and
+// git-inits it (so it's reviewable and passes the swarm-target guardrail cleanly).
+ipcMain.handle('swarm:demo', () => {
+  try {
+    const dir = path.join(os.homedir(), 'TermDash-Demo')
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+    const readme = path.join(dir, 'README.md')
+    if (!fs.existsSync(readme)) {
+      fs.writeFileSync(readme,
+        '# TermDash Demo Playground\n\nA safe throwaway folder for trying the swarm. Nothing here matters — let the agents poke at it, then delete this folder anytime.\n', 'utf8')
+    }
+    const sample = path.join(dir, 'app.js')
+    if (!fs.existsSync(sample)) {
+      fs.writeFileSync(sample,
+        '// A tiny sample with obvious bugs for the swarm to find and fix.\n' +
+        'function add(a, b) {\n  return a - b // BUG: should be a + b\n}\n\n' +
+        'function greet(name) {\n  return "Hello " // BUG: forgot to include the name\n}\n\n' +
+        'module.exports = { add, greet }\n', 'utf8')
+    }
+    try { require('child_process').execSync('git init', { cwd: dir, windowsHide: true }) } catch (_) {}
+    return { ok: true, path: dir }
+  } catch (e) { return { ok: false, error: e.message } }
+})
+
 ipcMain.handle('swarm:launch', (_, { items, cwd }) => {
   // Scaffold the shared files the team coordinates through:
   //  - PLAN.md  : the single source of truth, owned/dictated by Codex (the lead)

@@ -129,6 +129,8 @@ window.SwarmPanel = function SwarmPanel ({ onCreateSession, onDeployed }) {
   })
   const [files,    setFiles]    = useState([])    // attached file paths (passed by path)
   const [deploying,setDeploying]= useState(false)
+  const [demoReady, setDemoReady] = useState(false) // showed "demo ready, hit deploy" hint
+  const [exportMsg, setExportMsg] = useState('')     // transient export status text
   const goalRef = useRef(null)
 
   async function attachFiles () {
@@ -178,6 +180,25 @@ window.SwarmPanel = function SwarmPanel ({ onCreateSession, onDeployed }) {
   async function pick () {
     const f = await window.termAPI.pickFolder()
     if (f) setFolder(f)
+  }
+
+  // 🎓 First-timer demo: spin up a safe throwaway project and pre-fill a goal, so
+  // a nervous user can just hit Deploy and watch the swarm work — zero risk.
+  async function tryDemo () {
+    const r = await window.termAPI.swarmDemo()
+    if (r && r.ok) {
+      setFolder(r.path)
+      setGoal('Find and fix the bugs in this demo project, then add a quick test that proves the fix.')
+      setDemoReady(true)
+    }
+  }
+
+  // 📤 Export the swarm's findings (SWARM.md from the chosen folder) to read or share.
+  async function exportFindings () {
+    const r = await window.termAPI.exportFindings(folder)
+    if (r && !r.ok && r.error) setExportMsg(r.error)
+    else if (r && r.ok) setExportMsg('Saved ✓')
+    setTimeout(() => setExportMsg(''), 4000)
   }
 
   async function deploy () {
@@ -242,6 +263,24 @@ window.SwarmPanel = function SwarmPanel ({ onCreateSession, onDeployed }) {
       <div className="swarm-head">
         <h2>🐝 Swarm Deploy</h2>
         <p>State a goal, confirm the specialists, and a named Claude team launches on your project. A <strong>lead coordinator</strong> dictates the plan in <code>PLAN.md</code>, keeps everyone on the same page, and drives to the finish. Findings land in <code>SWARM.md</code>. The lead runs on Claude by default; choose Codex if you have it.</p>
+      </div>
+
+      {/* First-timer on-ramp — try it risk-free on a throwaway demo project */}
+      <div style={{
+        display:'flex', alignItems:'center', gap:'10px', flexWrap:'wrap',
+        margin:'0 0 14px', padding:'10px 12px', borderRadius:'8px',
+        background:'rgba(86,156,214,0.08)', border:'1px solid rgba(86,156,214,0.3)', fontSize:'12px'
+      }}>
+        <span style={{ fontSize:'15px' }}>🎓</span>
+        <span style={{ color:'#cccccc', flex:1, minWidth:'160px' }}>
+          {demoReady
+            ? <span style={{ color:'#6a9955' }}>Demo ready — folder &amp; goal are filled in. Just hit <strong>🚀 Deploy swarm</strong> below to watch it work.</span>
+            : <>New here? Try a swarm on a <strong>safe demo project</strong> first — zero risk to your own files.</>}
+        </span>
+        <button onClick={tryDemo} style={{
+          background:'#569cd6', color:'#fff', border:'none', borderRadius:'6px',
+          padding:'5px 12px', cursor:'pointer', whiteSpace:'nowrap', fontWeight:600
+        }}>🎓 Try a demo</button>
       </div>
 
       <label className="swarm-label">1 · What's the goal?</label>
@@ -383,6 +422,17 @@ window.SwarmPanel = function SwarmPanel ({ onCreateSession, onDeployed }) {
           {deploying ? 'Deploying…' : `🚀 Deploy swarm`}
         </button>
       </div>
+
+      {/* After a swarm has run on this folder, export its findings to read/share */}
+      {folder && (
+        <div style={{ display:'flex', alignItems:'center', gap:'10px', marginTop:'8px', fontSize:'11px', color:'#808080' }}>
+          <button onClick={exportFindings} style={{
+            background:'transparent', border:'1px solid #3c3c3c', color:'#cccccc',
+            borderRadius:'6px', padding:'4px 10px', cursor:'pointer'
+          }}>📤 Export findings (SWARM.md)</button>
+          {exportMsg && <span style={{ color: exportMsg === 'Saved ✓' ? '#6a9955' : '#dcdcaa' }}>{exportMsg}</span>}
+        </div>
+      )}
     </div>
   )
 }
