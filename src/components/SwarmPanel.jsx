@@ -20,10 +20,17 @@ const SPECIALISTS = [
 // Claude) or Codex (optional, only if the Codex CLI is installed). Specialists
 // ALWAYS run on Claude, so Claude is the one hard requirement.
 const LEAD_ENGINES = {
-  claude: { name: 'Claude', launch: 'claude --dangerously-skip-permissions' },
-  codex:  { name: 'Codex',  launch: 'codex --dangerously-bypass-approvals-and-sandbox' },
+  claude: { name: 'Claude', cmd: 'claude', bypass: '--dangerously-skip-permissions' },
+  codex:  { name: 'Codex',  cmd: 'codex',  bypass: '--dangerously-bypass-approvals-and-sandbox' },
 }
 const LEAD_COLOR = '#f5b301'
+
+// Build an agent's launch command. In "ask, don't bypass" (safe) mode we DROP the
+// bypass flag, so the agent pauses and asks before editing files or running commands.
+function launchCmd (engine, safeMode) {
+  const e = LEAD_ENGINES[engine] || LEAD_ENGINES.claude
+  return safeMode ? e.cmd : `${e.cmd} ${e.bypass}`
+}
 
 const BROAD_RE = /\bevery\b|\ball\b|complete|comprehensive|\bfull\b|thorough|check.*(way|field|angle)|audit|production[- ]?ready|every way/i
 
@@ -116,6 +123,10 @@ window.SwarmPanel = function SwarmPanel ({ onCreateSession, onDeployed }) {
     try { return localStorage.getItem('td-lead-engine') || 'claude' } catch (_) { return 'claude' }
   })
   const [codexAvailable, setCodexAvailable] = useState(false) // Codex CLI detected?
+  // "Ask, don't bypass": agents ask before editing instead of running autonomously.
+  const [safeMode, setSafeMode] = useState(() => {
+    try { return localStorage.getItem('td-safe-mode') === '1' } catch (_) { return false }
+  })
   const [files,    setFiles]    = useState([])    // attached file paths (passed by path)
   const [deploying,setDeploying]= useState(false)
   const goalRef = useRef(null)
@@ -204,7 +215,7 @@ window.SwarmPanel = function SwarmPanel ({ onCreateSession, onDeployed }) {
           session: ls,
           prompt: buildLeadPrompt(g, folder, teamNames, files, leadName),
           lead: true,
-          launch: LEAD_ENGINES[engine].launch,
+          launch: launchCmd(engine, safeMode),
         })
       }
 
@@ -213,7 +224,7 @@ window.SwarmPanel = function SwarmPanel ({ onCreateSession, onDeployed }) {
           kind: 'terminal', name: spec.name, color: spec.color,
           cwd: folder, swarm: true, goal: storedGoal,
         })
-        items.push({ session: s, prompt: buildPrompt(spec, g, folder, files, leadName) })
+        items.push({ session: s, prompt: buildPrompt(spec, g, folder, files, leadName), launch: launchCmd('claude', safeMode) })
       }
 
       await window.termAPI.swarmLaunch({ items, cwd: folder })
@@ -312,6 +323,19 @@ window.SwarmPanel = function SwarmPanel ({ onCreateSession, onDeployed }) {
           </span>
         </div>
       )}
+
+      <button
+        className={'swarm-lead' + (safeMode ? ' on' : '')}
+        onClick={() => setSafeMode(v => { const nv = !v; try { localStorage.setItem('td-safe-mode', nv ? '1' : '0') } catch (_) {} return nv })}
+        title="Safer first run: agents ASK before editing files or running commands, instead of running fully autonomously"
+      >
+        <span className="swarm-lead-check">{safeMode ? '✓' : ''}</span>
+        <span className="swarm-lead-icon">🔒</span>
+        <span className="swarm-lead-text">
+          <strong>Ask before editing (safer)</strong>
+          <em>{safeMode ? 'agents pause and ask you to approve each action — best for your first runs' : 'off — agents edit autonomously (faster, hands-off)'}</em>
+        </span>
+      </button>
 
       <label className="swarm-label">
         3 · Specialists to deploy

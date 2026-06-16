@@ -1,4 +1,4 @@
-const { useState, useEffect, useCallback } = React
+const { useState, useEffect, useCallback, useRef } = React
 
 window.App = function App () {
   const { sessions, addSession, removeSession } = window.useSessions()
@@ -14,6 +14,23 @@ window.App = function App () {
   const [aiTool,       setAiTool]       = useState(null) // toolId for AIGoalModal
   const [roadmaps,     setRoadmaps]     = useState({})   // sessionId → {name, path, content}
   const [roadmapHidden,setRoadmapHidden]= useState({})   // sessionId → true if user hid it
+  const lastOutputRef  = useRef({})                      // sessionId → ms of last terminal output
+  const [, setAgentTick] = useState(0)                   // 1s heartbeat so working/idle re-evaluates
+
+  // Track terminal activity (in a ref, to avoid a re-render per output chunk) and
+  // tick once a second so the working/paused/stopped badges stay current.
+  useEffect(() => {
+    const off = window.termAPI.onPtyOutput(({ id }) => { lastOutputRef.current[id] = Date.now() })
+    const t = setInterval(() => setAgentTick(x => x + 1), 1000)
+    return () => { off(); clearInterval(t) }
+  }, [])
+
+  // Live state of a swarm agent: stopped (process gone), working (output in the
+  // last few seconds), or paused (alive but quiet — waiting or thinking).
+  function agentState (id) {
+    if ((statuses[id] || 'stopped') === 'stopped') return 'stopped'
+    return (Date.now() - (lastOutputRef.current[id] || 0) < 2500) ? 'working' : 'paused'
+  }
 
   // Listen for PTY status updates
   useEffect(() => {
@@ -231,7 +248,23 @@ window.App = function App () {
                 >
                   <span className="proj-dot" />
                   <span className="proj-name">{s.name}</span>
-                  <span className={'proj-status ' + (statuses[s.id] || 'stopped')} />
+                  {s.swarm ? (() => {
+                    const st = agentState(s.id)
+                    const m = {
+                      working: { c: '#4ec9b0', label: 'working', icon: '●' },
+                      paused:  { c: '#dcdcaa', label: 'paused',  icon: '❚❚' },
+                      stopped: { c: '#888',    label: 'stopped', icon: '■' },
+                    }[st]
+                    return (
+                      <span title={'Agent is ' + st} style={{
+                        marginLeft: 'auto', fontSize: '9px', fontWeight: 600, color: m.c,
+                        border: '1px solid ' + m.c + '66', borderRadius: '4px',
+                        padding: '0 5px', whiteSpace: 'nowrap'
+                      }}>{m.icon} {m.label}</span>
+                    )
+                  })() : (
+                    <span className={'proj-status ' + (statuses[s.id] || 'stopped')} />
+                  )}
                   <button
                     className="proj-remove"
                     title="Remove from list"
