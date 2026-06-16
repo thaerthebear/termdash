@@ -94,6 +94,22 @@ window.App = function App () {
     }
   }
 
+  // 🛑 Emergency stop — kill and remove EVERY running swarm agent in one click.
+  // Important safety valve since agents edit files autonomously.
+  function stopAllSwarm () {
+    const swarmIds = terminalSessions.filter(s => s.swarm).map(s => s.id)
+    if (!swarmIds.length) return
+    swarmIds.forEach(id => { window.termAPI.stopPty(id); removeSession(id) })
+    const next = openIds.filter(id => !swarmIds.includes(id))
+    persistOpen(next)
+    setOpenIds(next)
+    if (swarmIds.includes(activeId) || view === 'swarm') {
+      const fallback = next[next.length - 1]
+      if (fallback) { setActiveId(fallback); setViewPersist(fallback) }
+      else { setActiveId(null); setViewPersist('home') }
+    }
+  }
+
   function deleteProject (id) {
     window.termAPI.stopPty(id)
     removeSession(id)
@@ -189,7 +205,20 @@ window.App = function App () {
           <div className="proj-side-head">Explorer</div>
           {explorerGroups.map(({ label, items }) => (
             <div key={label} className="proj-group">
-              <div className="proj-group-label">{label}</div>
+              <div className="proj-group-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>{label}</span>
+                {label === 'Swarm' && (
+                  <button
+                    title="Stop and remove ALL running agents"
+                    onClick={stopAllSwarm}
+                    style={{
+                      background: 'rgba(244,71,71,0.12)', border: '1px solid rgba(244,71,71,0.5)',
+                      color: '#f44747', borderRadius: '5px', padding: '1px 7px', fontSize: '10px',
+                      cursor: 'pointer', fontWeight: 600
+                    }}
+                  >🛑 Stop all</button>
+                )}
+              </div>
               {items.map(s => (
                 <div
                   key={s.id}

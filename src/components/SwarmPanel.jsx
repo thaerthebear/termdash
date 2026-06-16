@@ -111,7 +111,10 @@ window.SwarmPanel = function SwarmPanel ({ onCreateSession, onDeployed }) {
   const [checked,  setChecked]  = useState(new Set())
   const [touched,  setTouched]  = useState(false) // has user manually toggled roles?
   const [lead,     setLead]     = useState(true)  // run a lead coordinator
-  const [leadEngine, setLeadEngine] = useState('claude') // 'claude' (default) | 'codex'
+  // Remember the user's lead-engine pick across restarts (e.g. you chose Codex once).
+  const [leadEngine, setLeadEngine] = useState(() => {
+    try { return localStorage.getItem('td-lead-engine') || 'claude' } catch (_) { return 'claude' }
+  })
   const [codexAvailable, setCodexAvailable] = useState(false) // Codex CLI detected?
   const [files,    setFiles]    = useState([])    // attached file paths (passed by path)
   const [deploying,setDeploying]= useState(false)
@@ -139,9 +142,11 @@ window.SwarmPanel = function SwarmPanel ({ onCreateSession, onDeployed }) {
     setTimeout(() => goalRef.current?.focus(), 50)
   }, [])
 
-  // If Codex was picked but isn't installed, fall back to Claude.
+  // If Codex was picked but isn't installed, fall back to Claude. Otherwise
+  // remember the choice for next time.
   useEffect(() => {
-    if (leadEngine === 'codex' && !codexAvailable) setLeadEngine('claude')
+    if (leadEngine === 'codex' && !codexAvailable) { setLeadEngine('claude'); return }
+    try { localStorage.setItem('td-lead-engine', leadEngine) } catch (_) {}
   }, [leadEngine, codexAvailable])
 
   // Auto-suggest roles from the goal text, until the user manually edits the picks
