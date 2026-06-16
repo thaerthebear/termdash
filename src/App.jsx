@@ -16,6 +16,9 @@ window.App = function App () {
   const [roadmapHidden,setRoadmapHidden]= useState({})   // sessionId → true if user hid it
   const lastOutputRef  = useRef({})                      // sessionId → ms of last terminal output
   const [, setAgentTick] = useState(0)                   // 1s heartbeat so working/idle re-evaluates
+  const [tourOpen, setTourOpen] = useState(() => {       // first-run walkthrough
+    try { return localStorage.getItem('td-tour-done') !== '1' } catch (_) { return true }
+  })
 
   // Track terminal activity (in a ref, to avoid a re-render per output chunk) and
   // tick once a second so the working/paused/stopped badges stay current.
@@ -188,11 +191,14 @@ window.App = function App () {
         <span className="app-logo">TermDash</span>
         <span className="app-subtitle">Command Center</span>
         <div style={{ flex: 1 }} />
+        <button className="add-btn" onClick={() => setTourOpen(true)} title="Help — show the walkthrough" style={{ marginRight: '6px' }}>?</button>
         <button className="sidebar-toggle" onClick={() => setSidebarOpen(p => !p)}>
           {sidebarOpen ? '◀ Tools' : '▶ Tools'}
         </button>
         <button className="add-btn" onClick={() => setShowModal(true)} title="New session">+</button>
       </header>
+
+      {tourOpen && <window.WelcomeTour onClose={() => setTourOpen(false)} />}
 
       {/* Tab bar — only open terminals appear as tabs */}
       <window.TabBar
