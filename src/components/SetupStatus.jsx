@@ -5,10 +5,20 @@ const { useState, useEffect } = React
 // When everything's good it collapses to a slim green "ready" bar; when something
 // is missing it expands into a guided fix. Always live (re-checkable) rather than
 // a one-time flag, so a later logout/uninstall is caught too.
-window.SetupStatus = function SetupStatus () {
+window.SetupStatus = function SetupStatus ({ onRunSetup }) {
   const [env,      setEnv]      = useState(null)
   const [checking, setChecking] = useState(true)
   const [copied,   setCopied]   = useState(false)
+  const [started,  setStarted]  = useState('') // which one-click action was kicked off
+
+  const actionBtn = {
+    background: '#0078d4', color: '#fff', border: 'none', borderRadius: '6px',
+    padding: '7px 14px', cursor: 'pointer', fontWeight: 600, fontSize: '12px',
+  }
+  function runSetup (label, cmd, note) {
+    if (onRunSetup) onRunSetup(label, cmd)
+    setStarted(note)
+  }
 
   function check () {
     setChecking(true)
@@ -56,22 +66,38 @@ window.SetupStatus = function SetupStatus () {
         </button>
       </div>
 
-      {!env.claudeInstalled && (
+      {/* Case 1: no npm → they need Node.js first. One click opens the download. */}
+      {!env.claudeInstalled && !env.npmInstalled && (
         <div className="setup-fix">
-          <p>TermDash runs your swarm on your own Claude. Install the Claude CLI once:</p>
-          <div className="setup-cmd">
-            <code>npm install -g @anthropic-ai/claude-code</code>
-            <button onClick={() => copy('npm install -g @anthropic-ai/claude-code')}>
-              {copied ? 'Copied!' : 'Copy'}
-            </button>
-          </div>
-          <p className="setup-hint">Then click <strong>Re-check</strong>. (Needs Node.js — grab it free at nodejs.org if the command isn't found.)</p>
+          <p>First you need <strong>Node.js</strong> (a free one-time install that Claude runs on).</p>
+          <button style={actionBtn} onClick={() => window.termAPI.openLauncher({ url: 'https://nodejs.org/en/download' })}>
+            ⬇ Get Node.js (free)
+          </button>
+          <p className="setup-hint">Install it, restart TermDash, then we'll set up Claude for you with one click.</p>
         </div>
       )}
 
+      {/* Case 2: npm present, Claude missing → install it for them in one click. */}
+      {!env.claudeInstalled && env.npmInstalled && (
+        <div className="setup-fix">
+          <p>TermDash runs on your own Claude. Let me install it for you:</p>
+          <button style={actionBtn} onClick={() => runSetup('Install Claude', 'npm install -g @anthropic-ai/claude-code', 'Installing Claude in a terminal — watch it finish, then click ⟳ Re-check.')}>
+            ⚡ Install Claude for me
+          </button>
+          {started
+            ? <p className="setup-hint" style={{ color: '#dcdcaa' }}>{started}</p>
+            : <p className="setup-hint">Opens a terminal and runs the install — just watch it finish, then <strong>Re-check</strong>. <button onClick={() => copy('npm install -g @anthropic-ai/claude-code')} style={{ background:'none', border:'none', color:'#569cd6', cursor:'pointer', textDecoration:'underline', padding:0, fontSize:'11px' }}>{copied ? 'copied!' : 'or copy the command'}</button></p>}
+        </div>
+      )}
+
+      {/* Case 3: Claude installed but not signed in → sign in for them in one click. */}
       {env.claudeInstalled && !env.claudeLoggedIn && (
         <div className="setup-fix">
-          <p>Claude is installed but not signed in yet. Open any terminal, run <code>claude</code> once, log in with your Claude account, then <strong>Re-check</strong>.</p>
+          <p>Claude is installed — you just need to sign in once:</p>
+          <button style={actionBtn} onClick={() => runSetup('Sign in to Claude', 'claude', 'A terminal opened and started Claude — log in in the browser, then click ⟳ Re-check.')}>
+            🔑 Sign in to Claude
+          </button>
+          {started && <p className="setup-hint" style={{ color: '#dcdcaa' }}>{started}</p>}
         </div>
       )}
     </div>

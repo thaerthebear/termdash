@@ -181,6 +181,20 @@ window.App = function App () {
     return await addSession(cfg)
   }
 
+  // One-click setup helper: open a fresh terminal and run a command for the user
+  // (e.g. install Claude, or sign in) so beginners never have to touch a CLI.
+  async function runSetup (label, cmd) {
+    const sess = await addSession({
+      kind: 'terminal', type: 'custom', name: label,
+      shell: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+      args: [], cwd: '', color: '#569cd6', section: 'Terminals',
+    })
+    if (!sess) return
+    openSession(sess.id)
+    // Give the PTY a moment to spawn, then type the command and run it.
+    setTimeout(() => { window.termAPI.writePty(sess.id, cmd + '\r') }, 2200)
+  }
+
   // Group the left explorer: Swarm agents, Projects, then plain Terminals
   const explorerGroups = buildExplorerGroups(terminalSessions)
 
@@ -303,6 +317,7 @@ window.App = function App () {
               projectCount={terminalSessions.length}
               onSwarm={handleSwarmTab}
               onNew={() => setShowModal(true)}
+              onRunSetup={runSetup}
             />
           ) : (
             <div className="terminal-with-roadmap">
@@ -384,10 +399,10 @@ window.App = function App () {
 }
 
 // Clear landing screen — shown on startup and when nothing is open
-function Welcome ({ projectCount, onSwarm, onNew }) {
+function Welcome ({ projectCount, onSwarm, onNew, onRunSetup }) {
   return (
     <div className="welcome">
-      <window.SetupStatus />
+      <window.SetupStatus onRunSetup={onRunSetup} />
       <div className="welcome-logo">⊞</div>
       <h1>TermDash</h1>
       <p>Your dashboard is clear. Pick a project from the <strong>Explorer</strong> on the left to open it.</p>

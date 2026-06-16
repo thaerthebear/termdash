@@ -618,6 +618,10 @@ ipcMain.handle('env:check', () => {
   out.codexPath = resolveCli('codex')
   out.codexInstalled = !!out.codexPath
 
+  // npm — needed to install Claude. Lets onboarding offer a one-click install,
+  // or send the user to nodejs.org first if npm is missing.
+  out.npmInstalled = !!resolveCli('npm')
+
   // Signed in? ~/.claude.json carries the oauth account once the user logs in.
   try {
     const p = path.join(os.homedir(), '.claude.json')
