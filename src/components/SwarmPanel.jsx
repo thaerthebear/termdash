@@ -32,6 +32,14 @@ function launchCmd (engine, safeMode) {
   return safeMode ? e.cmd : `${e.cmd} ${e.bypass}`
 }
 
+// Resolve which engine actually powers the lead. Claude is the universal default;
+// Codex is used ONLY when the user both picked it AND the Codex CLI is present.
+// So a user without Codex always lands on Claude — never a broken launch. (The
+// specialists always run on Claude regardless; this only decides the lead.)
+function resolveLeadEngine ({ lead, leadEngine, codexAvailable }) {
+  return (lead && leadEngine === 'codex' && codexAvailable) ? 'codex' : 'claude'
+}
+
 const BROAD_RE = /\bevery\b|\ball\b|complete|comprehensive|\bfull\b|thorough|check.*(way|field|angle)|audit|production[- ]?ready|every way/i
 
 function suggestRoles (goal) {
@@ -223,7 +231,7 @@ window.SwarmPanel = function SwarmPanel ({ onCreateSession, onDeployed }) {
 
       // The lead runs on the chosen engine (Claude by default, Codex if picked).
       // Specialists always run on Claude — so the team shares one lead codename.
-      const engine = (lead && leadEngine === 'codex' && codexAvailable) ? 'codex' : 'claude'
+      const engine = resolveLeadEngine({ lead, leadEngine, codexAvailable })
       const leadName = LEAD_ENGINES[engine].name
 
       // The lead launches first so it can write PLAN.md before the specialists read it.

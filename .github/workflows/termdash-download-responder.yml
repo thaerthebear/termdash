@@ -1,0 +1,91 @@
+name: TermDash download responder
+
+# When someone comments just "termdash" on any issue or PR, reply with a
+# friendly download + testing link. Because this repo is *about* TermDash,
+# we only fire when the comment is essentially the bare word "termdash"
+# (so "termdash", "/termdash", "termdash!" trigger it, but a sentence that
+# merely mentions termdash does not) — this keeps the bot from spamming
+# normal discussion.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  respond:
+    runs-on: ubuntu-latest
+    # Never react to bot comments — this also stops the responder from
+    # replying to its own messages and looping.
+    if: ${{ github.event.comment.user.type != 'Bot' }}
+    steps:
+      - name: Reply with download link when the comment is "termdash"
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Normalize: lowercase, trim, then strip surrounding punctuation
+            // / markdown / whitespace so "/termdash", "termdash!", "**termdash**"
+            // all collapse to "termdash". A multi-word comment keeps its inner
+            // spaces and therefore won't match.
+            const raw = (context.payload.comment.body || '').toLowerCase().trim();
+            const normalized = raw.replace(/^[^a-z0-9]+/, '').replace(/[^a-z0-9]+$/, '');
+
+            if (normalized !== 'termdash') {
+              core.info(`Comment is not a bare "termdash" trigger (normalized: "${normalized}"); skipping.`);
+              return;
+            }
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.issue.number;
+            const commenter = context.payload.comment.user.login;
+
+            // Pull the current installer link straight from the latest release
+            // so this never goes stale as you ship new versions.
+            const releasesLatest = `https://github.com/${owner}/${repo}/releases/latest`;
+            let installerLine = `- **Latest installer:** ${releasesLatest} (grab the \`TermDash-Setup-*.exe\`)`;
+            try {
+              const { data: release } = await github.rest.repos.getLatestRelease({ owner, repo });
+              const exe = release.assets.find(a => a.name.toLowerCase().endsWith('.exe'));
+              if (exe) {
+                installerLine = `- **Latest installer (${release.tag_name}):** ${exe.browser_download_url}`;
+              }
+            } catch (e) {
+              core.info(`Could not fetch latest release, falling back to the releases page: ${e.message}`);
+            }
+
+            const message = [
+              `👋 Hey @${commenter} — thanks for your interest in **TermDash**!`,
+              ``,
+              `**⬇️ Download & test it**`,
+              installerLine,
+              `- **All releases:** ${releasesLatest}`,
+              ``,
+              `**🧪 How to test**`,
+              `1. Download and run \`TermDash-Setup-*.exe\` (Windows 10/11).`,
+              `2. First launch may show a Windows SmartScreen notice — click **More info → Run anyway** (the app isn't code-signed yet).`,
+              `3. TermDash runs on **your own Claude Code** — it checks for everything you need and walks you through install + sign-in on first launch.`,
+              ``,
+              `Hit a bug or have feedback? Open an issue — thanks for trying it! 🐝`,
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body: message,
+            });
+
+            // Acknowledge the trigger comment with a reaction (best-effort).
+            try {
+              await github.rest.reactions.createForIssueComment({
+                owner,
+                repo,
+                comment_id: context.payload.comment.id,
+                content: 'rocket',
+              });
+            } catch (e) {
+              core.info(`Could not add reaction: ${e.message}`);
+            }
